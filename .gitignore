@@ -12,4 +12,5 @@
 
 # Compiled JavaScript Distribution Folders
 dist/
+node_modules/
 reports
