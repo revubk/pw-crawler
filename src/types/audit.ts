@@ -6,7 +6,6 @@ export interface A11yErrorDetail {
   targetSelector: string;
   htmlSnippet: string;
   elementText: string;
-  elementScreenshotPath?: string;
 }
 
 export interface PageAuditResult {
@@ -14,11 +13,10 @@ export interface PageAuditResult {
   status: number;
   a11yErrors: number;
   seoScore: number;
-  screenshotPath?: string;
+  screenshotPath?: string; 
   a11yDetails: A11yErrorDetail[];
   seoDetails: string[];
-  // Tracks explicit successful checkpoints from the Lighthouse engine run
-  seoPassDetails: string[]; 
+  seoPassDetails: string[];
 }
 
 export interface RunHistoryRecord {
@@ -59,7 +57,7 @@ export interface DetailedReportData {
   a11yViolationCount: number;
   pages: PageAuditResult[];
   incompletePages: string[];
-  deviceMode?: DeviceFormFactor; // Track active mode inside history structures
+  deviceMode?: DeviceFormFactor; 
 }
 
 export interface WizardAnswers {
@@ -68,5 +66,5 @@ export interface WizardAnswers {
   runSeo: boolean;
   isHeadless: boolean;
   chosenDevice: 'desktop' | 'tablet' | 'mobile';
-  pageCap: number; // Added page cap value signature
+  pageCap: number;
 }

@@ -3,20 +3,18 @@ import { runAccessibilityAudit } from '../auditors/accessibility';
 import { runSeoAudit } from '../auditors/seo';
 import { generateHistoricReportsHub } from '../reporter/reporter';
 import { DetailedReportData, PageAuditResult, DeviceFormFactor } from '../types/audit';
+import * as path from 'path';
 
-/**
- * Manages concurrent validation task blocks, handles dynamic console telemetry metrics,
- * and executes fault-tolerant, status-aware backfills for incomplete page data pools.
- */
 export async function executeSiteAudit(
-  targetSite: string,
-  scanA11y: boolean,
-  scanSeo: boolean,
+  targetSite: string, 
+  scanA11y: boolean, 
+  scanSeo: boolean, 
   headless: boolean,
   deviceMode: DeviceFormFactor,
   pageCapValue: number
 ): Promise<void> {
   const runId = Math.random().toString(36).substring(2, 7).toUpperCase();
+  const hostName = new URL(targetSite).hostname.replace(/[^a-z0-9]/gi, '_');
 
   console.log('\n========================================================================');
   console.log(`🚀 AUTOMATED RELEASE AUDIT PIPELINE INITIALIZED [RUN ID: ${runId}]`);
@@ -24,7 +22,6 @@ export async function executeSiteAudit(
   console.log(`📱 Device Emulation : ${deviceMode.toUpperCase()}`);
   console.log(`⚙️  Inspection Tiers : P1 (Functional Stability) | A11y: ${scanA11y ? 'ON' : 'OFF'} | SEO: ${scanSeo ? 'ON' : 'OFF'}`);
   console.log('========================================================================\n');
-  console.log('--- STARTING SITE DISCOVERY & COMPLIANCE SCAN ---\n');
 
   const crawler = new WebCrawler(targetSite);
   const structuredPagesList: PageAuditResult[] = [];
@@ -33,8 +30,7 @@ export async function executeSiteAudit(
 
   const handleInterrupt = (): void => {
     if (!wasInterrupted) {
-      console.log('\n\n⚠️  [USER TERMINATION DETECTED] Forcefully halting execution loop...');
-      console.log('💾 Compiling active records and packing current structural metrics data...');
+      console.log('\n\n⚠️  [USER TERMINATION] Compiling structural metrics data...');
       wasInterrupted = true;
       crawler.stopGracefully();
     }
@@ -43,18 +39,17 @@ export async function executeSiteAudit(
 
   let executionSummary: any[] = [];
   try {
-    // Forward the pageCapValue directly into the crawler engine parameters definition layer
     executionSummary = await crawler.startCrawl(headless, runId, deviceMode, pageCapValue, async (page, url, statusCode, currentProgress, calculatedTotal) => {
-
       let a11yErrorsOnPage = 0;
       let seoScoreOnPage = 100;
       let pageA11yDetails: any[] = [];
       let pageSeoDetails: string[] = [];
       let pageSeoPassDetails: string[] = [];
+      let screenshotPath: string | undefined = undefined;
 
       if (statusCode < 400) {
         const tasks: Promise<any>[] = [];
-        if (scanA11y) tasks.push(runAccessibilityAudit(page, url, runId, currentProgress));
+        if (scanA11y) tasks.push(runAccessibilityAudit(page, url));
         if (scanSeo) tasks.push(runSeoAudit(page, url, deviceMode));
 
         const auditResults = await Promise.all(tasks);
@@ -65,6 +60,33 @@ export async function executeSiteAudit(
           a11yErrorsOnPage = a11yData.violationCount;
           pageA11yDetails = a11yData.violations || [];
           aggregateA11yIssues += a11yErrorsOnPage;
+
+          // 🔥 NEW HIGHLIGHT ENGINE: Outline all failed locators on the page concurrently
+          if (a11yErrorsOnPage > 0) {
+            for (const error of pageA11yDetails) {
+              const sel = error.targetSelector;
+              // Skip large structural layout boundaries to avoid full-screen boxes
+              if (sel && sel !== 'html' && sel !== 'body' && sel !== 'main') {
+                try {
+                  const elementLocator = page.locator(sel).first();
+                  if (await elementLocator.count() > 0) {
+                    await elementLocator.evaluate((el) => {
+                      (el as HTMLElement).style.outline = '3px dashed #dc2626';
+                      (el as HTMLElement).style.outlineOffset = '2px';
+                    });
+                  }
+                } catch (_) {}
+              }
+            }
+
+            // Capture the single full-page visual map containing all highlighted boxes
+            const fileSafeName = url.replace(/[^a-z0-9]/gi, '_').toLowerCase().substring(0, 40);
+            const imgFilename = `screenshots/map_${runId}_${fileSafeName}.png`;
+            const fullImgPath = path.join(process.cwd(), 'reports', hostName, imgFilename);
+            
+            await page.screenshot({ path: fullImgPath, fullPage: true });
+            screenshotPath = imgFilename;
+          }
         } else {
           pageA11yDetails = undefined as any;
         }
@@ -80,7 +102,7 @@ export async function executeSiteAudit(
           seoScoreOnPage = 100;
         }
       } else {
-        pageSeoDetails = [`Functional Failure Node: Target web gateway returned terminal server error code [HTTP ${statusCode}].`];
+        pageSeoDetails = [`Functional Failure Node: Server error [HTTP ${statusCode}].`];
         pageA11yDetails = [];
         pageSeoPassDetails = [];
       }
@@ -99,46 +121,34 @@ export async function executeSiteAudit(
         seoScore: seoScoreOnPage,
         a11yDetails: pageA11yDetails,
         seoDetails: pageSeoDetails,
-        seoPassDetails: pageSeoPassDetails
+        seoPassDetails: pageSeoPassDetails,
+        screenshotPath // Assigns the single image path cleanly
       });
 
       return { a11yErrors: a11yErrorsOnPage, seoScore: seoScoreOnPage };
     });
   } catch (err) {
-    console.error('Core automation lifecycle hit critical exception:', err);
+    console.error('Pipeline exception:', err);
   } finally {
     process.off('SIGINT', handleInterrupt);
   }
 
-  // Fault-Tolerance Backfill Step handles aborted/incomplete pages accurately without false positive passes
+  // Handle backfill formatting for unvisited/dropped links
   executionSummary.forEach(crawledPage => {
     const activeMatch = structuredPagesList.find(p => p.url === crawledPage.url);
     if (!activeMatch) {
-      const isResponseError = crawledPage.statusCode >= 400;
-
       structuredPagesList.push({
         url: crawledPage.url,
         status: crawledPage.statusCode,
         a11yErrors: 0,
         seoScore: 0,
         a11yDetails: wasInterrupted ? (undefined as any) : [],
-        seoDetails: wasInterrupted
-          ? ['[Run Interrupted] Process terminated manually before Lighthouse analysis could execute.']
-          : isResponseError
-            ? [`Functional Failure: Web engine received error code [HTTP ${crawledPage.statusCode}]. Compliance tasks aborted.`]
-            : ['Functional Error: Route map dropped before validation tasks finished execution.'],
+        seoDetails: wasInterrupted ? ['[Run Interrupted] Manual termination.'] : ['Functional Error.'],
         seoPassDetails: wasInterrupted ? (undefined as any) : []
       });
-    } else {
+    } else if (!activeMatch.screenshotPath && crawledPage.screenshotPath) {
+      // Retain the standard error fallback screenshot if no accessibility highlight map was taken
       activeMatch.screenshotPath = crawledPage.screenshotPath;
-
-      if (wasInterrupted) {
-        if (activeMatch.seoScore === 100 && activeMatch.seoPassDetails.length === 0) {
-          activeMatch.seoDetails = ['[Run Interrupted] Execution halted during live page inspection.'];
-          activeMatch.seoPassDetails = undefined as any;
-          activeMatch.a11yDetails = undefined as any;
-        }
-      }
     }
   });
 
@@ -148,8 +158,7 @@ export async function executeSiteAudit(
   console.log('                    RELEASE READINESS SCORECARD                       ');
   console.log('========================================================================');
   console.log(`• Total Unique Application Paths Crawled : ${structuredPagesList.length}`);
-  console.log(`• Critical Core Blocking Defects (P1)   : ${brokenCount === 0 ? '0 (Clear)' : `${brokenCount} Error(s) detected`}`);
-  console.log(`• Digital Accessibility Compliance Flags : ${scanA11y ? `${aggregateA11yIssues} Warnings flagged` : 'Tier Skipped'}`);
+  console.log(`• Critical Core Blocking Defects (P1)   : ${brokenCount}`);
   console.log('------------------------------------------------------------------------\n');
 
   const detailedPayload: DetailedReportData = {
