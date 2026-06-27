@@ -61,25 +61,61 @@ export async function executeSiteAudit(
           pageA11yDetails = a11yData.violations || [];
           aggregateA11yIssues += a11yErrorsOnPage;
 
-          // 🔥 NEW HIGHLIGHT ENGINE: Outline all failed locators on the page concurrently
           if (a11yErrorsOnPage > 0) {
             for (const error of pageA11yDetails) {
               const sel = error.targetSelector;
-              // Skip large structural layout boundaries to avoid full-screen boxes
+              const ruleId = error.id;
+              
               if (sel && sel !== 'html' && sel !== 'body' && sel !== 'main') {
                 try {
                   const elementLocator = page.locator(sel).first();
                   if (await elementLocator.count() > 0) {
-                    await elementLocator.evaluate((el) => {
-                      (el as HTMLElement).style.outline = '3px dashed #dc2626';
-                      (el as HTMLElement).style.outlineOffset = '2px';
-                    });
+                    // 🔥 UPGRADED RUNTIME INJECTION ENGINE: Maps coordinates directly to global document body layer
+                    await elementLocator.evaluate((el, rule) => {
+                      const htmlEl = el as HTMLElement;
+                      
+                      // Inject bright red tracking outline onto the element box structure
+                      htmlEl.style.outline = '3px dashed #dc2626';
+                      htmlEl.style.outlineOffset = '2px';
+
+                      // Fetch exact viewport boundary metrics coordinates
+                      const rect = htmlEl.getBoundingClientRect();
+                      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+                      
+                      // Construct floating global overlay badge tag container
+                      const badge = document.createElement('div');
+                      badge.innerText = `⚠️ AXE BUG: ${rule}`;
+                      
+                      // HIGH-CONTRAST ENGINEERING DASHBOARD STYLING
+                      badge.style.position = 'absolute';
+                      // Position badge slightly higher than the top boundary coordinate safely
+                      badge.style.top = `${rect.top + scrollTop - 24}px`;
+                      badge.style.left = `${rect.left + scrollLeft}px`;
+                      badge.style.backgroundColor = '#dc2626';
+                      badge.style.color = '#ffff00'; // High-contrast warning yellow text colors
+                      badge.style.fontFamily = "'SFMono-Regular', Consolas, 'Liberation Mono', monospace";
+                      badge.style.fontSize = '11px';
+                      badge.style.fontWeight = 'bold';
+                      badge.style.padding = '3px 8px';
+                      badge.style.borderRadius = '4px';
+                      badge.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)';
+                      badge.style.border = '1px solid #ffff00';
+                      badge.style.zIndex = '2147483647'; // Maximum depth index to prevent elements from layering on top
+                      badge.style.pointerEvents = 'none';
+                      badge.style.whiteSpace = 'nowrap';
+                      
+                      // Append directly to global body layout to avoid parent overflow clipping bounds
+                      document.body.appendChild(badge);
+                    }, ruleId);
                   }
-                } catch (_) {}
+                } catch (_) {
+                  // Catch detached links elements safely
+                }
               }
             }
 
-            // Capture the single full-page visual map containing all highlighted boxes
+            // Capture the single full-page layout visual master blueprint
             const fileSafeName = url.replace(/[^a-z0-9]/gi, '_').toLowerCase().substring(0, 40);
             const imgFilename = `screenshots/map_${runId}_${fileSafeName}.png`;
             const fullImgPath = path.join(process.cwd(), 'reports', hostName, imgFilename);
@@ -122,7 +158,7 @@ export async function executeSiteAudit(
         a11yDetails: pageA11yDetails,
         seoDetails: pageSeoDetails,
         seoPassDetails: pageSeoPassDetails,
-        screenshotPath // Assigns the single image path cleanly
+        screenshotPath
       });
 
       return { a11yErrors: a11yErrorsOnPage, seoScore: seoScoreOnPage };
@@ -130,10 +166,9 @@ export async function executeSiteAudit(
   } catch (err) {
     console.error('Pipeline exception:', err);
   } finally {
-    process.off('SIGINT', handleInterrupt);
+    process.on('SIGINT', handleInterrupt);
   }
 
-  // Handle backfill formatting for unvisited/dropped links
   executionSummary.forEach(crawledPage => {
     const activeMatch = structuredPagesList.find(p => p.url === crawledPage.url);
     if (!activeMatch) {
@@ -147,7 +182,6 @@ export async function executeSiteAudit(
         seoPassDetails: wasInterrupted ? (undefined as any) : []
       });
     } else if (!activeMatch.screenshotPath && crawledPage.screenshotPath) {
-      // Retain the standard error fallback screenshot if no accessibility highlight map was taken
       activeMatch.screenshotPath = crawledPage.screenshotPath;
     }
   });
