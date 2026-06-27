@@ -62,50 +62,57 @@ export async function executeSiteAudit(
           aggregateA11yIssues += a11yErrorsOnPage;
 
           if (a11yErrorsOnPage > 0) {
-            // Group our errors list array by selector targets to find matches sharing layout planes
-            const selectorGroupMap: { [key: string]: number } = {};
+            // High-visibility enterprise color configuration palette matrix wheel
+            const categoryColorsPalette = ['#d97706', '#2563eb', '#7c3aed', '#059669', '#db2777', '#0891b2', '#ea580c'];
+            
+            // Dynamic object registries to track specific category instances and colors
+            const uniqueCategoryColorMap: { [key: string]: string } = {};
+            const categoryCounterRegistry: { [key: string]: number } = {};
+            let assignedColorsCount = 0;
 
             for (const error of pageA11yDetails) {
               const sel = error.targetSelector;
               const ruleId = error.id;
               
               if (sel && sel !== 'html' && sel !== 'body' && sel !== 'main') {
-                // Keep track of how many badges are already assigned to this exact element locator selector
-                if (!selectorGroupMap[sel]) {
-                  selectorGroupMap[sel] = 0;
+                // 🧠 CATEGORY COLOR ASSIGNMENT CORE
+                if (!uniqueCategoryColorMap[ruleId]) {
+                  uniqueCategoryColorMap[ruleId] = categoryColorsPalette[assignedColorsCount % categoryColorsPalette.length];
+                  assignedColorsCount++;
                 }
-                const collisionIndexMultiplier = selectorGroupMap[sel];
-                selectorGroupMap[sel]++;
+                if (!categoryCounterRegistry[ruleId]) {
+                  categoryCounterRegistry[ruleId] = 0;
+                }
+                
+                categoryCounterRegistry[ruleId]++;
+                const activeCategoryColor = uniqueCategoryColorMap[ruleId];
+                const activeOccurrenceIndex = categoryCounterRegistry[ruleId];
 
                 try {
                   const elementLocator = page.locator(sel).first();
                   if (await elementLocator.count() > 0) {
-                    // Inject outlines and stack text tags cleanly without using dangerous DOM queries
+                    // Inject outlines matching the category color token directly into the browser DOM frame
                     await elementLocator.evaluate((el, config) => {
                       const htmlEl = el as HTMLElement;
                       
-                      htmlEl.style.outline = '3px dashed #dc2626';
-                      htmlEl.style.outlineOffset = '2px';
+                      htmlEl.style.outline = `2px solid ${config.color}`;
+                      htmlEl.style.outlineOffset = '1px';
                       htmlEl.style.position = 'relative';
 
                       const badge = document.createElement('div');
-                      badge.innerText = `⚠️ AXE BUG: ${config.ruleId}`;
+                      badge.innerText = `${config.ruleId} #${config.index}`;
                       
                       badge.style.position = 'absolute';
-                      // 🔥 SOLID ARITHMETIC SHIFT: Multiplies index positions to stack badges vertically upwards without breaking
-                      const verticalOffset = 22 + (config.offsetIndex * 25);
-                      badge.style.top = `-${verticalOffset}px`;
-                      badge.style.left = '0';
-                      
-                      badge.style.backgroundColor = '#dc2626';
-                      badge.style.color = '#ffff00';
+                      badge.style.top = '-12px';
+                      badge.style.left = '-2px';
+                      badge.style.backgroundColor = config.color;
+                      badge.style.color = '#ffffff';
                       badge.style.fontFamily = 'monospace';
-                      badge.style.fontSize = '11px';
+                      badge.style.fontSize = '10px';
                       badge.style.fontWeight = 'bold';
-                      badge.style.padding = '3px 8px';
-                      badge.style.borderRadius = '4px';
-                      badge.style.boxShadow = '0 4px 8px rgba(0,0,0,0.25)';
-                      badge.style.border = '1px solid #ffff00';
+                      badge.style.padding = '1px 5px';
+                      badge.style.borderRadius = '3px';
+                      badge.style.boxShadow = '0 2px 4px rgba(0,0,0,0.15)';
                       badge.style.zIndex = '99999';
                       badge.style.pointerEvents = 'none';
                       badge.style.whiteSpace = 'nowrap';
@@ -115,11 +122,9 @@ export async function executeSiteAudit(
                       } else {
                         htmlEl.appendChild(badge);
                       }
-                    }, { ruleId, offsetIndex: collisionIndexMultiplier });
+                    }, { ruleId, color: activeCategoryColor, index: activeOccurrenceIndex });
                   }
-                } catch (_) {
-                  // Skip gracefully if an element structure drops mid-evaluation pass
-                }
+                } catch (_) {}
               }
             }
 
@@ -173,7 +178,7 @@ export async function executeSiteAudit(
   } catch (err) {
     console.error('Pipeline exception:', err);
   } finally {
-    process.on('SIGINT', handleInterrupt);
+    process.off('SIGINT', handleInterrupt);
   }
 
   executionSummary.forEach(crawledPage => {
@@ -193,20 +198,12 @@ export async function executeSiteAudit(
     }
   });
 
-  const brokenCount = structuredPagesList.filter(r => r.status >= 400).length;
-
-  console.log('========================================================================');
-  console.log('                    RELEASE READINESS SCORECARD                       ');
-  console.log('========================================================================');
-  console.log(`• Total Unique Application Paths Crawled : ${structuredPagesList.length}`);
-  console.log(`• Critical Core Blocking Defects (P1)   : ${brokenCount}`);
-  console.log('------------------------------------------------------------------------\n');
-
   const detailedPayload: DetailedReportData = {
     runId,
     targetUrl: targetSite,
     timestamp: new Date().toLocaleString(),
-    brokenCount,
+    deviceMode: deviceMode,
+    brokenCount: structuredPagesList.filter(r => r.status >= 400).length,
     a11yViolationCount: aggregateA11yIssues,
     pages: structuredPagesList,
     incompletePages: crawler.queue

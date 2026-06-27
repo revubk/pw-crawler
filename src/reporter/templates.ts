@@ -5,10 +5,6 @@ import { compileSeoDrawerHtml } from './components/seoDrawer';
 
 export { renderHistoryRowTemplate } from './components/historyRow';
 
-/**
- * Dynamically builds page accordions using structural percentage grid wrappers.
- * Explicitly forces layout containers to remain horizontal during expansion states.
- */
 export function renderPageBlockTemplate(p: PageAuditResult): string {
   const pageScore = typeof p.seoScore === 'number' ? p.seoScore : 100;
   const pageHashId = p.url.replace(/[^a-z0-9]/gi, '_').toLowerCase().substring(0, 30);

@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
-// 🔥 FIX: Import native pathToFileURL to safely format local system file strings for your web browser
 import { pathToFileURL } from 'url';
 import { DetailedReportData, RunHistoryRecord } from '../types/audit';
 import { renderPageBlockTemplate, renderHistoryRowTemplate } from './templates';
@@ -36,6 +35,7 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
     runId: currentRunData.runId,
     timestamp: currentRunData.timestamp,
     targetUrl: currentRunData.targetUrl,
+    deviceMode: currentRunData.deviceMode || 'desktop',
     totalScanned: currentRunData.pages.length,
     brokenCount: currentRunData.brokenCount,
     a11yViolations: currentRunData.a11yViolationCount,
@@ -110,8 +110,8 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
         <a href="index.html" class="btn-back">← Return to Dashboard History</a>
         <div class="header">
             <div>
-                <h2 style="margin: 0; font-size: 22px; color: #0f172a;">Run Diagnostics Analysis Metrics</h2>
-                <p style="margin: 6px 0 0 0; color: #64748b; font-size: 14px;">Domain URL: <strong style="color: #0f172a;">${currentRunData.targetUrl}</strong> | Run Timestamp: ${currentRunData.timestamp}</p>
+                <h2 style="margin: 0; font-size: 22px; color: #0f172a; font-weight: 800;">Run Diagnostics Analysis Metrics</h2>
+                <p style="margin: 6px 0 0 0; color: #64748b; font-size: 14px;">Domain URL: <strong style="color: #0f172a;">${currentRunData.targetUrl}</strong> | Device Emulation: <strong style="color: #2563eb;">${(currentRunData.deviceMode || 'desktop').toUpperCase()}</strong> | Run Timestamp: ${currentRunData.timestamp}</p>
             </div>
         </div>
         ${incompleteBlock}
@@ -144,7 +144,7 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f8fafc; color: #1e293b; padding: 50px; margin: 0; }
         .wrapper { max-width: 1200px; margin: 0 auto; }
-        h1 { margin: 0 0 8px 0; color: #0f172a; font-size: 26px; font-weight: 800; }
+        h1 { margin: 0 0 8px 0; color: #0f172a; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
         table { width: 100%; border-collapse: collapse; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
         th { background: #f1f5f9; color: #475569; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 16px; text-align: left; border-bottom: 2px solid #e2e8f0; }
         td { padding: 16px; border-bottom: 1px solid #e2e8f0; font-size: 14px; color: #475569; }
@@ -162,6 +162,8 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
                 <tr>
                     <th>Execution Date & Time</th>
                     <th>Target Destination Website</th>
+                    <!-- 🔥 NEW SYSTEM COLUMN HEADER ADDED -->
+                    <th>Device Emulated</th>
                     <th>Pages Crawled</th>
                     <th>P1 Broken Links</th>
                     <th>A11y Violations (P2)</th>
@@ -188,7 +190,6 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
 </html>`;
   fs.writeFileSync(indexDashboardPath, masterDashboardHtml, 'utf8');
 
-  // 🔥 FIX: Convert the index file destination string into a perfectly formatted web browser native URL
   const browserUrl = pathToFileURL(indexDashboardPath).href;
   console.log(`\n📊 Launching Cleaned Light Dashboard View: ${browserUrl}`);
   

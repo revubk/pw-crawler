@@ -2,7 +2,6 @@ import { A11yErrorDetail } from '../../types/audit';
 import { renderA11yViolationCard } from './a11yCard';
 
 export function compileAccessibilityDrawerHtml(a11yDetailsList: A11yErrorDetail[]): string {
-  // 🔥 FIX: Explicitly check for undefined states triggered by a manual test interruption
   if (a11yDetailsList === undefined) {
     return `
       <div style="background: #fff7ed; border: 1px solid #ffedd5; color: #c2410c; padding: 14px 16px; border-radius: 6px; font-size: 13px; font-weight: 500;">
@@ -18,8 +17,16 @@ export function compileAccessibilityDrawerHtml(a11yDetailsList: A11yErrorDetail[
   }
   
   let combinedCards = '';
+  const categoryCountTracker: { [key: string]: number } = {};
+  
   for (const error of a11yDetailsList) {
-    combinedCards += renderA11yViolationCard(error);
+    const categoryKey = error.id;
+    if (!categoryCountTracker[categoryKey]) {
+      categoryCountTracker[categoryKey] = 0;
+    }
+    categoryCountTracker[categoryKey]++;
+    
+    combinedCards += renderA11yViolationCard(error, categoryCountTracker[categoryKey]);
   }
   return combinedCards;
 }
