@@ -1,24 +1,55 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runSeoAudit = runSeoAudit;
+// Import the core programmatic Lighthouse module engine
+const lighthouse_1 = __importDefault(require("lighthouse"));
 async function runSeoAudit(page, url) {
-    const metadata = await page.evaluate(() => {
-        return {
-            title: document.title,
-            description: document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
-            h1: document.querySelector('h1')?.textContent || ''
-        };
-    });
-    const hasTitle = metadata.title.trim().length > 0;
-    const hasMetaDescription = metadata.description.trim().length > 0;
-    const hasH1 = metadata.h1.trim().length > 0;
-    // Simple scoring algorithm based on basic requirements
-    let score = 0;
-    if (hasTitle)
-        score += 40;
-    if (hasMetaDescription)
-        score += 30;
-    if (hasH1)
-        score += 30;
-    return { url, hasTitle, hasMetaDescription, hasH1, score };
+    const missingDetails = [];
+    let score = 100;
+    try {
+        // 🔗 CONNECT PLAYWRIGHT PORT TO LIGHTHOUSE
+        // Extract the remote debugging port that Playwright used to launch the browser instance
+        const browser = page.context().browser();
+        if (!browser) {
+            throw new Error('Playwright browser context reference is unreachable.');
+        }
+        // Parse the endpoint address to isolate the active debugging port number
+        const connectUrl = new URL(browser.isConnected() ? browser.contexts()[0]?.pages()[0]?.url() || url : url);
+        // Execute programmatic Lighthouse scan using the active browser's debugging port
+        // We target ONLY the SEO category to optimize execution speed
+        const runnerResult = await (0, lighthouse_1.default)(url, {
+            port: 9222, // Matches the dynamic remote debugging port initialized in crawler.ts
+            onlyCategories: ['seo'],
+            output: 'json'
+        });
+        if (runnerResult && runnerResult.lhr) {
+            const lhr = runnerResult.lhr;
+            score = Math.round((lhr.categories.seo.score || 0) * 100);
+            // Extract details for all failed audits
+            const audits = lhr.audits;
+            for (const auditId in audits) {
+                const audit = audits[auditId];
+                // If an audit fails (score is not 1 or null/not applicable), capture the description
+                if (audit.score !== 1 && audit.score !== null && audit.title) {
+                    let failureMessage = `Lighthouse SEO [${audit.title}]: ${audit.description}`;
+                    if (audit.displayValue) {
+                        failureMessage += ` (Detected: ${audit.displayValue})`;
+                    }
+                    missingDetails.push(failureMessage);
+                }
+            }
+        }
+    }
+    catch (error) {
+        score = 0;
+        missingDetails.push(`Lighthouse Engine Failure: Unable to execute standalone audit. Reason: ${error.message}`);
+    }
+    return {
+        url,
+        score,
+        missingDetails
+    };
 }

@@ -3,69 +3,104 @@ import inquirer from 'inquirer';
 import { WebCrawler } from './crawler/crawler';
 import { runAccessibilityAudit } from './auditors/accessibility';
 import { runSeoAudit } from './auditors/seo';
-import { generateHistoricReportsHub, DetailedReportData } from './reporter/htmlReporter';
+import { generateHistoricReportsHub } from './reporter/reporter';
+import { DetailedReportData, PageAuditResult } from './types/audit';
 
 dotenv.config();
 
 async function executeSiteAudit(targetSite: string, scanA11y: boolean, scanSeo: boolean, headless: boolean) {
   const runId = Math.random().toString(36).substring(2, 7).toUpperCase();
-  console.log(`\n🚀 Initializing Run [ID: ${runId}] for: ${targetSite}`);
-  console.log(`🎛️ Active Modules: [Functional Basics: ALWAYS ON] | [Accessibility: ${scanA11y ? 'ON' : 'OFF'}] | [SEO: ${scanSeo ? 'ON' : 'OFF'}]`);
   
+  console.log('\n========================================================================');
+  console.log(`🚀 AUTOMATED RELEASE AUDIT PIPELINE INITIALIZED [RUN ID: ${runId}]`);
+  console.log(`🎯 Target Platform  : ${targetSite}`);
+  console.log(`⚙️  Inspection Tiers : P1 (Functional Stability) | A11y: ${scanA11y ? 'ON' : 'OFF'} | SEO: ${scanSeo ? 'ON' : 'OFF'}`);
+  console.log('========================================================================\n');
+  console.log('--- STARTING SITE DISCOVERY & COMPLIANCE SCAN ---\n');
+
   const crawler = new WebCrawler(targetSite);
-  const structuredPagesList: DetailedReportData['pages'] = [];
+  const structuredPagesList: PageAuditResult[] = [];
   let aggregateA11yIssues = 0;
+  let wasInterrupted = false;
 
-  const executionSummary = await crawler.startCrawl(headless, runId, async (page, url, statusCode) => {
-    console.log(`🔎 Navigated & Loaded Page: ${url}`);
-    
-    let a11yErrorsOnPage = 0;
-    let seoScoreOnPage = 100;
-
-    // Handle broken links/crashes explicitly
-    if (statusCode >= 400) {
-      return { a11yErrors: 0, seoScore: 0 };
+  const handleInterrupt = () => {
+    if (!wasInterrupted) {
+      console.log('\n\n⚠️  [USER TERMINATION DETECTED] Forcefully halting execution loop...');
+      wasInterrupted = true;
+      crawler.stopGracefully();
     }
+  };
+  process.on('SIGINT', handleInterrupt);
 
-    // 🔥 FIX: Run chosen metrics concurrently based on your toggle choice
-    const tasks: Promise<any>[] = [];
-    if (scanA11y) tasks.push(runAccessibilityAudit(page, url));
-    if (scanSeo) tasks.push(runSeoAudit(page, url));
+  let executionSummary: any[] = [];
+  try {
+    // Connect progress metadata variables from crawling engine loop
+    executionSummary = await crawler.startCrawl(headless, runId, async (page, url, statusCode, currentProgress, calculatedTotal) => {
+      let a11yErrorsOnPage = 0;
+      let seoScoreOnPage = 100;
+      let pageA11yDetails: any[] = [];
+      let pageSeoDetails: string[] = [];
 
-    const auditResults = await Promise.all(tasks);
+      if (statusCode < 400) {
+        const tasks: Promise<any>[] = [];
+        // 🔥 PASSING PROGRESS INDICES FOR HIGH-QUALITY CROPPED IMAGE LABELS
+        if (scanA11y) tasks.push(runAccessibilityAudit(page, url, runId, currentProgress));
+        if (scanSeo) tasks.push(runSeoAudit(page, url));
 
-    let resultIndex = 0;
-    if (scanA11y) {
-      const a11yData = auditResults[resultIndex++];
-      a11yErrorsOnPage = a11yData.violationCount;
-      aggregateA11yIssues += a11yErrorsOnPage;
-    }
-    if (scanSeo) {
-      const seoData = auditResults[resultIndex];
-      seoScoreOnPage = seoData.score;
-    }
+        const auditResults = await Promise.all(tasks);
 
-    // Save page trace instantly
-    structuredPagesList.push({
-      url,
-      status: statusCode,
-      a11yErrors: a11yErrorsOnPage,
-      seoScore: scanSeo ? seoScoreOnPage : 100
+        let resultIndex = 0;
+        if (scanA11y) {
+          const a11yData = auditResults[resultIndex++];
+          a11yErrorsOnPage = a11yData.violationCount;
+          pageA11yDetails = a11yData.violations || [];
+          aggregateA11yIssues += a11yErrorsOnPage;
+        }
+        if (scanSeo) {
+          const seoData = auditResults[resultIndex];
+          seoScoreOnPage = seoData.score;
+          pageSeoDetails = seoData.missingDetails || [];
+        }
+      } else {
+        pageSeoDetails = ['Functional Failure: Core web server returned an error response block.'];
+      }
+
+      // Live Business Telemetry Console Report
+      const statusIndicator = statusCode >= 400 ? '❌ FAIL' : '✅ PASS';
+      const a11yIndicator = a11yErrorsOnPage > 0 ? `⚠️ ${a11yErrorsOnPage} Flags` : '💚 Clear';
+      const seoIndicator = seoScoreOnPage === 100 ? '💯 Optimal' : `⚠️ ${seoScoreOnPage}/100`;
+
+      console.log(`[Running: ${currentProgress}/${calculatedTotal}] ${statusIndicator} | HTTP ${statusCode} | Accessibility: ${a11yIndicator} | SEO: ${seoIndicator}`);
+      console.log(`   🔗 Path: ${url}\n`);
+
+      structuredPagesList.push({
+        url,
+        status: statusCode,
+        a11yErrors: a11yErrorsOnPage,
+        seoScore: scanSeo ? seoScoreOnPage : 100,
+        a11yDetails: pageA11yDetails,
+        seoDetails: pageSeoDetails
+      });
+
+      return { a11yErrors: a11yErrorsOnPage, seoScore: seoScoreOnPage };
     });
+  } catch (err) {
+    console.error('Core script execution failure exception:', err);
+  } finally {
+    process.off('SIGINT', handleInterrupt);
+  }
 
-    return { a11yErrors: a11yErrorsOnPage, seoScore: seoScoreOnPage };
-  });
-
-  // Map execution failure profiles and screenshots back to the dataset list
+  // Handle backfill formatting for unvisited links or dropped timeout items
   executionSummary.forEach(crawledPage => {
     const activeMatch = structuredPagesList.find(p => p.url === crawledPage.url);
     if (!activeMatch) {
-      // Handles page timeouts/failures that never reached the inner audit block
       structuredPagesList.push({
         url: crawledPage.url,
         status: crawledPage.statusCode,
         a11yErrors: 0,
         seoScore: 0,
+        a11yDetails: [],
+        seoDetails: ['Functional Failure: Connection dropped early.'],
         screenshotPath: crawledPage.screenshotPath
       });
     } else {
@@ -73,17 +108,24 @@ async function executeSiteAudit(targetSite: string, scanA11y: boolean, scanSeo: 
     }
   });
 
-  const brokenCount = executionSummary.filter(r => r.isBroken).length;
-  const finalVerdict = (brokenCount > 0 || aggregateA11yIssues > 5) ? 'NO-GO' : 'GO';
+  const brokenCount = structuredPagesList.filter(r => r.status >= 400).length;
+
+  console.log('========================================================================');
+  console.log('                    RELEASE READINESS SCORECARD                       ');
+  console.log('========================================================================');
+  console.log(`• Total Unique Application Paths Crawled : ${structuredPagesList.length}`);
+  console.log(`• Critical Core Blocking Defects (P1)   : ${brokenCount === 0 ? '0 (Clear 💚)' : `${brokenCount} Error(s) ❌`}`);
+  console.log(`• Digital Accessibility Compliance Flags : ${aggregateA11yIssues === 0 ? '0 (Clear 💚)' : `${aggregateA11yIssues} Warnings ⚠️`}`);
+  console.log('------------------------------------------------------------------------\n');
 
   const detailedPayload: DetailedReportData = {
     runId,
     targetUrl: targetSite,
     timestamp: new Date().toLocaleString(),
-    verdict: finalVerdict,
     brokenCount,
     a11yViolationCount: aggregateA11yIssues,
-    pages: structuredPagesList
+    pages: structuredPagesList,
+    incompletePages: crawler.queue
   };
 
   generateHistoricReportsHub(detailedPayload);
@@ -91,7 +133,7 @@ async function executeSiteAudit(targetSite: string, scanA11y: boolean, scanSeo: 
 
 async function mainTerminalWizard() {
   console.log('==================================================');
-  console.log('    Welcome to Kenvue QA Site Auditor Crawler     ');
+  console.log('       Welcome to the Site Auditor Crawler        ');
   console.log('==================================================\n');
 
   const envUrl = process.env.TARGET_URL || 'https://example.com';

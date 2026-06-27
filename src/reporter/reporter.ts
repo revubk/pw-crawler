@@ -1,99 +1,68 @@
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateHistoricReportsHub = generateHistoricReportsHub;
-const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
-const child_process_1 = require("child_process");
-const templates_1 = require("./templates");
-function generateHistoricReportsHub(currentRunData) {
-    let hostName = 'default_domain';
+import * as fs from 'fs';
+import * as path from 'path';
+import { exec } from 'child_process';
+import { DetailedReportData, RunHistoryRecord } from '../types/audit';
+import { renderPageBlockTemplate, renderHistoryRowTemplate } from './templates';
+
+export function generateHistoricReportsHub(currentRunData: DetailedReportData): void {
+  let hostName = 'default_domain';
+  try {
+    hostName = new URL(currentRunData.targetUrl).hostname.replace(/[^a-z0-9]/gi, '_');
+  } catch (_) {}
+
+  const reportsDir = path.join(process.cwd(), 'reports', hostName);
+  const databasePath = path.join(reportsDir, 'history_database.json');
+  const indexDashboardPath = path.join(reportsDir, 'index.html');
+  const uniqueReportName = `report_${currentRunData.runId}.html`;
+  const uniqueReportPath = path.join(reportsDir, uniqueReportName);
+
+  if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
+
+  // Calculate the average SEO performance metric for the current run session
+  const totalSeoScoresSum = currentRunData.pages.reduce((sum, p) => sum + (p.seoScore || 0), 0);
+  const calculatedAverageSeoScore = currentRunData.pages.length > 0 
+    ? Math.round(totalSeoScoresSum / currentRunData.pages.length) 
+    : 100;
+
+  let historyList: RunHistoryRecord[] = [];
+  if (fs.existsSync(databasePath)) {
     try {
-        hostName = new URL(currentRunData.targetUrl).hostname.replace(/[^a-z0-9]/gi, '_');
+      historyList = JSON.parse(fs.readFileSync(databasePath, 'utf8'));
+    } catch (_) { historyList = []; }
+  }
+
+  const newHistoryItem: RunHistoryRecord = {
+    runId: currentRunData.runId,
+    timestamp: currentRunData.timestamp,
+    targetUrl: currentRunData.targetUrl,
+    totalScanned: currentRunData.pages.length,
+    brokenCount: currentRunData.brokenCount,
+    a11yViolations: currentRunData.a11yViolationCount,
+    avgSeoScore: calculatedAverageSeoScore, // Map metric property to row configuration
+    reportFilename: uniqueReportName
+  };
+  historyList.unshift(newHistoryItem);
+  fs.writeFileSync(databasePath, JSON.stringify(historyList, null, 2), 'utf8');
+
+  let pagesListContent = '';
+  for (const p of currentRunData.pages) {
+    pagesListContent += renderPageBlockTemplate(p);
+  }
+
+  let incompleteBlock = '';
+  if (currentRunData.incompletePages && currentRunData.incompletePages.length > 0) {
+    let items = '';
+    for (const url of currentRunData.incompletePages) {
+      items += `<li style="margin-bottom: 4px; font-family: monospace; font-size: 13px; color: #9a3412;">${url}</li>`;
     }
-    catch (_) { }
-    const reportsDir = path.join(process.cwd(), 'reports', hostName);
-    const databasePath = path.join(reportsDir, 'history_database.json');
-    const indexDashboardPath = path.join(reportsDir, 'index.html');
-    const uniqueReportName = `report_${currentRunData.runId}.html`;
-    const uniqueReportPath = path.join(reportsDir, uniqueReportName);
-    if (!fs.existsSync(reportsDir))
-        fs.mkdirSync(reportsDir, { recursive: true });
-    // Calculate the average SEO performance metric for the current run session
-    const totalSeoScoresSum = currentRunData.pages.reduce((sum, p) => sum + (p.seoScore || 0), 0);
-    const calculatedAverageSeoScore = currentRunData.pages.length > 0
-        ? Math.round(totalSeoScoresSum / currentRunData.pages.length)
-        : 100;
-    let historyList = [];
-    if (fs.existsSync(databasePath)) {
-        try {
-            historyList = JSON.parse(fs.readFileSync(databasePath, 'utf8'));
-        }
-        catch (_) {
-            historyList = [];
-        }
-    }
-    const newHistoryItem = {
-        runId: currentRunData.runId,
-        timestamp: currentRunData.timestamp,
-        targetUrl: currentRunData.targetUrl,
-        totalScanned: currentRunData.pages.length,
-        brokenCount: currentRunData.brokenCount,
-        a11yViolations: currentRunData.a11yViolationCount,
-        avgSeoScore: calculatedAverageSeoScore, // Map metric property to row configuration
-        reportFilename: uniqueReportName
-    };
-    historyList.unshift(newHistoryItem);
-    fs.writeFileSync(databasePath, JSON.stringify(historyList, null, 2), 'utf8');
-    let pagesListContent = '';
-    for (const p of currentRunData.pages) {
-        pagesListContent += (0, templates_1.renderPageBlockTemplate)(p);
-    }
-    let incompleteBlock = '';
-    if (currentRunData.incompletePages && currentRunData.incompletePages.length > 0) {
-        let items = '';
-        for (const url of currentRunData.incompletePages) {
-            items += `<li style="margin-bottom: 4px; font-family: monospace; font-size: 13px; color: #9a3412;">${url}</li>`;
-        }
-        incompleteBlock = `
+    incompleteBlock = `
       <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
         <h4 style="margin: 0 0 10px 0; color: #ea580c; font-size: 14px;">⚠️ Run Interrupted — Incomplete Queue Pages Remaining (${currentRunData.incompletePages.length}):</h4>
         <ul style="margin: 0; padding-left: 20px;">${items}</ul>
       </div>`;
-    }
-    const individualHtml = `
+  }
+
+  const individualHtml = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -132,12 +101,14 @@ function generateHistoricReportsHub(currentRunData) {
     </div>
 </body>
 </html>`;
-    fs.writeFileSync(uniqueReportPath, individualHtml, 'utf8');
-    let historyTableRows = '';
-    for (const h of historyList) {
-        historyTableRows += (0, templates_1.renderHistoryRowTemplate)(h);
-    }
-    const masterDashboardHtml = `
+  fs.writeFileSync(uniqueReportPath, individualHtml, 'utf8');
+
+  let historyTableRows = '';
+  for (const h of historyList) {
+    historyTableRows += renderHistoryRowTemplate(h);
+  }
+
+  const masterDashboardHtml = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -189,8 +160,9 @@ function generateHistoricReportsHub(currentRunData) {
     </script>
 </body>
 </html>`;
-    fs.writeFileSync(indexDashboardPath, masterDashboardHtml, 'utf8');
-    console.log(`\n📊 Launching Visualized Accordion Dashboard View: ${indexDashboardPath}`);
-    const command = process.platform === 'win32' ? `start ""` : process.platform === 'darwin' ? 'open' : 'xdg-open';
-    (0, child_process_1.exec)(`${command} "${indexDashboardPath}"`);
+  fs.writeFileSync(indexDashboardPath, masterDashboardHtml, 'utf8');
+
+  console.log(`\n📊 Launching Visualized Accordion Dashboard View: ${indexDashboardPath}`);
+  const command = process.platform === 'win32' ? `start ""` : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  exec(`${command} "${indexDashboardPath}"`);
 }
