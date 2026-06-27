@@ -6,7 +6,7 @@ export interface A11yErrorDetail {
   targetSelector: string;
   htmlSnippet: string;
   elementText: string;
-  elementScreenshotPath?: string; // Links to the specific cropped element snapshot
+  elementScreenshotPath?: string;
 }
 
 export interface PageAuditResult {
@@ -14,9 +14,11 @@ export interface PageAuditResult {
   status: number;
   a11yErrors: number;
   seoScore: number;
-  screenshotPath?: string; // Full-page screenshot link
+  screenshotPath?: string;
   a11yDetails: A11yErrorDetail[];
   seoDetails: string[];
+  // Tracks explicit successful checkpoints from the Lighthouse engine run
+  seoPassDetails: string[]; 
 }
 
 export interface RunHistoryRecord {
@@ -26,7 +28,7 @@ export interface RunHistoryRecord {
   totalScanned: number;
   brokenCount: number;
   a11yViolations: number;
-  avgSeoScore: number; // Added tracking metric property
+  avgSeoScore: number;
   reportFilename: string;
 }
 
@@ -45,4 +47,26 @@ export interface CrawlEngineResult {
   statusCode: number;
   isBroken: boolean;
   screenshotPath?: string;
+}
+
+export type DeviceFormFactor = 'desktop' | 'tablet' | 'mobile';
+
+export interface DetailedReportData {
+  runId: string;
+  targetUrl: string;
+  timestamp: string;
+  brokenCount: number;
+  a11yViolationCount: number;
+  pages: PageAuditResult[];
+  incompletePages: string[];
+  deviceMode?: DeviceFormFactor; // Track active mode inside history structures
+}
+
+export interface WizardAnswers {
+  finalUrl: string;
+  runA11y: boolean;
+  runSeo: boolean;
+  isHeadless: boolean;
+  chosenDevice: 'desktop' | 'tablet' | 'mobile';
+  pageCap: number; // Added page cap value signature
 }

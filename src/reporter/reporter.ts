@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
+// 🔥 FIX: Import native pathToFileURL to safely format local system file strings for your web browser
+import { pathToFileURL } from 'url';
 import { DetailedReportData, RunHistoryRecord } from '../types/audit';
 import { renderPageBlockTemplate, renderHistoryRowTemplate } from './templates';
 
@@ -18,7 +20,6 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
 
   if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
 
-  // Calculate the average SEO performance metric for the current run session
   const totalSeoScoresSum = currentRunData.pages.reduce((sum, p) => sum + (p.seoScore || 0), 0);
   const calculatedAverageSeoScore = currentRunData.pages.length > 0 
     ? Math.round(totalSeoScoresSum / currentRunData.pages.length) 
@@ -38,23 +39,20 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
     totalScanned: currentRunData.pages.length,
     brokenCount: currentRunData.brokenCount,
     a11yViolations: currentRunData.a11yViolationCount,
-    avgSeoScore: calculatedAverageSeoScore, // Map metric property to row configuration
+    avgSeoScore: calculatedAverageSeoScore,
     reportFilename: uniqueReportName
   };
   historyList.unshift(newHistoryItem);
   fs.writeFileSync(databasePath, JSON.stringify(historyList, null, 2), 'utf8');
 
-  let pagesListContent = '';
-  for (const p of currentRunData.pages) {
-    pagesListContent += renderPageBlockTemplate(p);
-  }
+  const pagesListContent = currentRunData.pages.map(p => renderPageBlockTemplate(p)).join('');
 
   let incompleteBlock = '';
   if (currentRunData.incompletePages && currentRunData.incompletePages.length > 0) {
-    let items = '';
-    for (const url of currentRunData.incompletePages) {
-      items += `<li style="margin-bottom: 4px; font-family: monospace; font-size: 13px; color: #9a3412;">${url}</li>`;
-    }
+    const items = currentRunData.incompletePages.map(url => 
+      `<li style="margin-bottom: 4px; font-family: monospace; font-size: 13px; color: #9a3412;">${url}</li>`
+    ).join('');
+    
     incompleteBlock = `
       <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
         <h4 style="margin: 0 0 10px 0; color: #ea580c; font-size: 14px;">⚠️ Run Interrupted — Incomplete Queue Pages Remaining (${currentRunData.incompletePages.length}):</h4>
@@ -70,43 +68,72 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
     <title>Audit Details — Run #${currentRunData.runId}</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f8fafc; padding: 40px; margin: 0; color: #1e293b; }
-        .card { background: #ffffff; padding: 40px; border-radius: 12px; max-width: 1200px; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 20px 25px -5px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        .card { background: #ffffff; padding: 40px; border-radius: 12px; max-width: 1200px; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 20px 25px -5px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; position: relative; }
         .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 24px; margin-bottom: 30px; }
         .btn-back { display: inline-flex; align-items: center; margin-bottom: 24px; text-decoration: none; color: #2563eb; font-weight: 600; font-size: 14px; }
         
         details[open] .accordion-arrow { transform: rotate(90deg); }
+        details[open] .sub-arrow { transform: rotate(90deg); }
+        
         summary::-webkit-details-marker { display: none; }
         summary { list-style: none; }
         .page-accordion { transition: border-color 0.2s, box-shadow 0.2s; }
         .page-accordion:hover { border-color: #cbd5e1 !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important; }
-        .accordion-arrow { display: inline-block; }
-        
-        /* Nested sub-accordion expansion styling config rules */
-        details[open] > summary > span { transform: rotate(90deg); }
+        .accordion-arrow, .sub-arrow { display: inline-block; transition: transform 0.15s; }
+        details[open] > summary > div > span { transform: rotate(90deg); }
+
+        #btnScrollTop {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            z-index: 99;
+            border: none;
+            outline: none;
+            background-color: #2563eb;
+            color: white;
+            cursor: pointer;
+            padding: 14px 18px;
+            border-radius: 50%;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            display: none;
+            transition: opacity 0.2s, background-color 0.2s;
+        }
+        #btnScrollTop:hover { background-color: #1d4ed8; }
     </style>
 </head>
 <body>
+    <button onclick="window.scrollTo({top: 0, behavior: 'smooth'});" id="btnScrollTop" title="Go to top">▲</button>
+
     <div class="card">
         <a href="index.html" class="btn-back">← Return to Dashboard History</a>
         <div class="header">
             <div>
-                <!-- 🔥 VERDICT TEXT BADGES ELIMINATED CLEANLY FROM LOG PANEL HEADERS -->
                 <h2 style="margin: 0; font-size: 22px; color: #0f172a;">Run Diagnostics Analysis Metrics</h2>
-                <p style="margin: 6px 0 0 0; color: #64748b; font-size: 14px;">Domain URL Node: <strong style="color: #0f172a;">${currentRunData.targetUrl}</strong> | Run Timestamp: ${currentRunData.timestamp}</p>
+                <p style="margin: 6px 0 0 0; color: #64748b; font-size: 14px;">Domain URL: <strong style="color: #0f172a;">${currentRunData.targetUrl}</strong> | Run Timestamp: ${currentRunData.timestamp}</p>
             </div>
         </div>
         ${incompleteBlock}
         <h3 style="font-size: 16px; color: #0f172a; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 8px; width: fit-content;">Audited Page Nodes Breakdown</h3>
         ${pagesListContent}
     </div>
+
+    <script>
+        const scrollBtn = document.getElementById("btnScrollTop");
+        window.onscroll = function() {
+            if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
+                scrollBtn.style.display = "block";
+            } else {
+                scrollBtn.style.display = "none";
+            }
+        };
+    </script>
 </body>
 </html>`;
   fs.writeFileSync(uniqueReportPath, individualHtml, 'utf8');
 
-  let historyTableRows = '';
-  for (const h of historyList) {
-    historyTableRows += renderHistoryRowTemplate(h);
-  }
+  const historyTableRows = historyList.map(h => renderHistoryRowTemplate(h)).join('');
 
   const masterDashboardHtml = `
 <!DOCTYPE html>
@@ -138,7 +165,6 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
                     <th>Pages Crawled</th>
                     <th>P1 Broken Links</th>
                     <th>A11y Violations (P2)</th>
-                    <!-- 🔥 NEW COLUMN: Tracking programmatic Lighthouse metrics scores history -->
                     <th>Technical SEO Metrics</th>
                 </tr>
             </thead>
@@ -162,7 +188,10 @@ export function generateHistoricReportsHub(currentRunData: DetailedReportData): 
 </html>`;
   fs.writeFileSync(indexDashboardPath, masterDashboardHtml, 'utf8');
 
-  console.log(`\n📊 Launching Visualized Accordion Dashboard View: ${indexDashboardPath}`);
+  // 🔥 FIX: Convert the index file destination string into a perfectly formatted web browser native URL
+  const browserUrl = pathToFileURL(indexDashboardPath).href;
+  console.log(`\n📊 Launching Cleaned Light Dashboard View: ${browserUrl}`);
+  
   const command = process.platform === 'win32' ? `start ""` : process.platform === 'darwin' ? 'open' : 'xdg-open';
-  exec(`${command} "${indexDashboardPath}"`);
+  exec(`${command} "${browserUrl}"`);
 }

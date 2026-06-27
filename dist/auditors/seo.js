@@ -4,40 +4,55 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runSeoAudit = runSeoAudit;
-// Import the core programmatic Lighthouse module engine
 const lighthouse_1 = __importDefault(require("lighthouse"));
-async function runSeoAudit(page, url) {
+async function runSeoAudit(page, url, deviceMode) {
     const missingDetails = [];
+    const passingDetails = [];
     let score = 100;
     try {
-        // 🔗 CONNECT PLAYWRIGHT PORT TO LIGHTHOUSE
-        // Extract the remote debugging port that Playwright used to launch the browser instance
         const browser = page.context().browser();
-        if (!browser) {
-            throw new Error('Playwright browser context reference is unreachable.');
-        }
-        // Parse the endpoint address to isolate the active debugging port number
-        const connectUrl = new URL(browser.isConnected() ? browser.contexts()[0]?.pages()[0]?.url() || url : url);
-        // Execute programmatic Lighthouse scan using the active browser's debugging port
-        // We target ONLY the SEO category to optimize execution speed
-        const runnerResult = await (0, lighthouse_1.default)(url, {
-            port: 9222, // Matches the dynamic remote debugging port initialized in crawler.ts
+        if (!browser)
+            throw new Error('Browser context reference unreachable.');
+        // Configure specific emulation flags depending on user input selections
+        const lighthouseFlags = {
+            port: 9222,
             onlyCategories: ['seo'],
-            output: 'json'
-        });
+            output: 'json',
+            logLevel: 'error'
+        };
+        // Construct custom user configurations to override default mobile scaling
+        const customConfig = {
+            extends: 'lighthouse:default',
+            settings: {
+                onlyCategories: ['seo'],
+                formFactor: deviceMode, // Maps 'desktop' | 'mobile' | 'tablet' directly
+                // Disable screen emulation to let Lighthouse inherit the active Playwright viewport sizes smoothly
+                screenEmulation: {
+                    disabled: true
+                }
+            }
+        };
+        // Override the user agent for desktop execution profiles
+        if (deviceMode === 'desktop') {
+            customConfig.settings.emulatedUserAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+        }
+        else if (deviceMode === 'tablet') {
+            customConfig.settings.emulatedUserAgent = 'Mozilla/5.0 (iPad; CPU OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1';
+        }
+        const runnerResult = await (0, lighthouse_1.default)(url, lighthouseFlags, customConfig);
         if (runnerResult && runnerResult.lhr) {
             const lhr = runnerResult.lhr;
             score = Math.round((lhr.categories.seo.score || 0) * 100);
-            // Extract details for all failed audits
             const audits = lhr.audits;
             for (const auditId in audits) {
                 const audit = audits[auditId];
-                // If an audit fails (score is not 1 or null/not applicable), capture the description
-                if (audit.score !== 1 && audit.score !== null && audit.title) {
+                if (audit.score === 1 && audit.title) {
+                    passingDetails.push(`Verified: ${audit.title}`);
+                }
+                else if (audit.score !== 1 && audit.score !== null && audit.title) {
                     let failureMessage = `Lighthouse SEO [${audit.title}]: ${audit.description}`;
-                    if (audit.displayValue) {
+                    if (audit.displayValue)
                         failureMessage += ` (Detected: ${audit.displayValue})`;
-                    }
                     missingDetails.push(failureMessage);
                 }
             }
@@ -45,11 +60,7 @@ async function runSeoAudit(page, url) {
     }
     catch (error) {
         score = 0;
-        missingDetails.push(`Lighthouse Engine Failure: Unable to execute standalone audit. Reason: ${error.message}`);
+        missingDetails.push(`Lighthouse Engine Failure: ${error.message}`);
     }
-    return {
-        url,
-        score,
-        missingDetails
-    };
+    return { url, score, missingDetails, passingDetails };
 }

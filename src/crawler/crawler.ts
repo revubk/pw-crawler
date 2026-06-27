@@ -25,44 +25,46 @@ export class WebCrawler {
     this.isForceStopped = true;
   }
 
-  public async startCrawl(
+    public async startCrawl(
     headless: boolean, 
     runId: string,
+    deviceMode: 'desktop' | 'tablet' | 'mobile',
+    pageCapLimit: number, // 🔥 Pass limits ceiling parameters downstream
     onPageDiscover: (page: Page, url: string, statusCode: number, currentProgress: number, calculatedTotal: number) => Promise<{ a11yErrors: number; seoScore: number }>
   ): Promise<CrawlEngineResult[]> {
     let currentHeadlessMode = headless;
     const hostName = new URL(this.baseUrl).hostname.replace(/[^a-z0-9]/gi, '_');
     const results: CrawlEngineResult[] = [];
 
-    // 🔥 PROGRAMMATIC LIGHTHOUSE HOOK: Exposing remote debugging port argument
     this.browser = await chromium.launch({ 
       headless: currentHeadlessMode, 
       slowMo: currentHeadlessMode ? 0 : 300,
       args: ['--remote-debugging-port=9222'] 
     });
     
-    let context = await this.browser.newContext({ viewport: { width: 1280, height: 720 } });
+    let viewportSize = { width: 1280, height: 800 };
+    if (deviceMode === 'tablet') viewportSize = { width: 768, height: 1024 };
+    else if (deviceMode === 'mobile') viewportSize = { width: 375, height: 667 };
 
+    let context = await this.browser.newContext({ viewport: viewportSize });
+
+    // 🔥 LOOP CEILING GUARD: Evaluate active constraints on each round
     while (this.queue.length > 0 && !this.isForceStopped) {
-      if (!currentHeadlessMode && this.queue.length > 20) {
-        console.log(`\n⚠️  NOTICE: Discovered pages > 20. Shifting browser execution to Headless...`);
-        await this.browser.close();
-        currentHeadlessMode = true;
-        this.browser = await chromium.launch({ 
-          headless: true, 
-          slowMo: 0,
-          args: ['--remote-debugging-port=9222']
-        });
-        context = await this.browser.newContext({ viewport: { width: 1280, height: 720 } });
-      }
-
+      
       const currentUrl = this.queue.shift()!;
       const cleanCurrentUrl = currentUrl.split('#')[0];
       
       if (this.visitedUrls.has(cleanCurrentUrl)) continue;
-      this.visitedUrls.add(cleanCurrentUrl);
 
+      // Check if continuing this cycle breaches the chosen page boundary limit
+      if (this.visitedUrls.size >= pageCapLimit) {
+        console.log(`\n🛑 LIMIT REACHED: Crawler hit the selected maximum boundary limit of ${pageCapLimit} pages. Wrapping execution parameters cleanly...`);
+        break; // Break loop execution cleanly
+      }
+
+      this.visitedUrls.add(cleanCurrentUrl);
       const currentProgressNumber = this.visitedUrls.size;
+    
       const calculatedTotalVolume = this.visitedUrls.size + this.queue.length;
 
       const page = await context.newPage();
