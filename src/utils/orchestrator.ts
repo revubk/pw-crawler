@@ -62,60 +62,67 @@ export async function executeSiteAudit(
           aggregateA11yIssues += a11yErrorsOnPage;
 
           if (a11yErrorsOnPage > 0) {
+            // Group our errors list array by selector targets to find matches sharing layout planes
+            const selectorGroupMap: { [key: string]: number } = {};
+
             for (const error of pageA11yDetails) {
               const sel = error.targetSelector;
               const ruleId = error.id;
               
               if (sel && sel !== 'html' && sel !== 'body' && sel !== 'main') {
+                // Keep track of how many badges are already assigned to this exact element locator selector
+                if (!selectorGroupMap[sel]) {
+                  selectorGroupMap[sel] = 0;
+                }
+                const collisionIndexMultiplier = selectorGroupMap[sel];
+                selectorGroupMap[sel]++;
+
                 try {
                   const elementLocator = page.locator(sel).first();
                   if (await elementLocator.count() > 0) {
-                    // 🔥 UPGRADED RUNTIME INJECTION ENGINE: Maps coordinates directly to global document body layer
-                    await elementLocator.evaluate((el, rule) => {
+                    // Inject outlines and stack text tags cleanly without using dangerous DOM queries
+                    await elementLocator.evaluate((el, config) => {
                       const htmlEl = el as HTMLElement;
                       
-                      // Inject bright red tracking outline onto the element box structure
                       htmlEl.style.outline = '3px dashed #dc2626';
                       htmlEl.style.outlineOffset = '2px';
+                      htmlEl.style.position = 'relative';
 
-                      // Fetch exact viewport boundary metrics coordinates
-                      const rect = htmlEl.getBoundingClientRect();
-                      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-                      
-                      // Construct floating global overlay badge tag container
                       const badge = document.createElement('div');
-                      badge.innerText = `⚠️ AXE BUG: ${rule}`;
+                      badge.innerText = `⚠️ AXE BUG: ${config.ruleId}`;
                       
-                      // HIGH-CONTRAST ENGINEERING DASHBOARD STYLING
                       badge.style.position = 'absolute';
-                      // Position badge slightly higher than the top boundary coordinate safely
-                      badge.style.top = `${rect.top + scrollTop - 24}px`;
-                      badge.style.left = `${rect.left + scrollLeft}px`;
+                      // 🔥 SOLID ARITHMETIC SHIFT: Multiplies index positions to stack badges vertically upwards without breaking
+                      const verticalOffset = 22 + (config.offsetIndex * 25);
+                      badge.style.top = `-${verticalOffset}px`;
+                      badge.style.left = '0';
+                      
                       badge.style.backgroundColor = '#dc2626';
-                      badge.style.color = '#ffff00'; // High-contrast warning yellow text colors
-                      badge.style.fontFamily = "'SFMono-Regular', Consolas, 'Liberation Mono', monospace";
+                      badge.style.color = '#ffff00';
+                      badge.style.fontFamily = 'monospace';
                       badge.style.fontSize = '11px';
                       badge.style.fontWeight = 'bold';
                       badge.style.padding = '3px 8px';
                       badge.style.borderRadius = '4px';
-                      badge.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)';
+                      badge.style.boxShadow = '0 4px 8px rgba(0,0,0,0.25)';
                       badge.style.border = '1px solid #ffff00';
-                      badge.style.zIndex = '2147483647'; // Maximum depth index to prevent elements from layering on top
+                      badge.style.zIndex = '99999';
                       badge.style.pointerEvents = 'none';
                       badge.style.whiteSpace = 'nowrap';
                       
-                      // Append directly to global body layout to avoid parent overflow clipping bounds
-                      document.body.appendChild(badge);
-                    }, ruleId);
+                      if (htmlEl.parentElement) {
+                        htmlEl.parentElement.appendChild(badge);
+                      } else {
+                        htmlEl.appendChild(badge);
+                      }
+                    }, { ruleId, offsetIndex: collisionIndexMultiplier });
                   }
                 } catch (_) {
-                  // Catch detached links elements safely
+                  // Skip gracefully if an element structure drops mid-evaluation pass
                 }
               }
             }
 
-            // Capture the single full-page layout visual master blueprint
             const fileSafeName = url.replace(/[^a-z0-9]/gi, '_').toLowerCase().substring(0, 40);
             const imgFilename = `screenshots/map_${runId}_${fileSafeName}.png`;
             const fullImgPath = path.join(process.cwd(), 'reports', hostName, imgFilename);
