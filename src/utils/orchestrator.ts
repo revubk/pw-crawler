@@ -62,10 +62,7 @@ export async function executeSiteAudit(
           aggregateA11yIssues += a11yErrorsOnPage;
 
           if (a11yErrorsOnPage > 0) {
-            // High-visibility enterprise color configuration palette matrix wheel
             const categoryColorsPalette = ['#d97706', '#2563eb', '#7c3aed', '#059669', '#db2777', '#0891b2', '#ea580c'];
-            
-            // Dynamic object registries to track specific category instances and colors
             const uniqueCategoryColorMap: { [key: string]: string } = {};
             const categoryCounterRegistry: { [key: string]: number } = {};
             let assignedColorsCount = 0;
@@ -75,7 +72,6 @@ export async function executeSiteAudit(
               const ruleId = error.id;
               
               if (sel && sel !== 'html' && sel !== 'body' && sel !== 'main') {
-                // 🧠 CATEGORY COLOR ASSIGNMENT CORE
                 if (!uniqueCategoryColorMap[ruleId]) {
                   uniqueCategoryColorMap[ruleId] = categoryColorsPalette[assignedColorsCount % categoryColorsPalette.length];
                   assignedColorsCount++;
@@ -91,7 +87,6 @@ export async function executeSiteAudit(
                 try {
                   const elementLocator = page.locator(sel).first();
                   if (await elementLocator.count() > 0) {
-                    // Inject outlines matching the category color token directly into the browser DOM frame
                     await elementLocator.evaluate((el, config) => {
                       const htmlEl = el as HTMLElement;
                       
@@ -128,11 +123,15 @@ export async function executeSiteAudit(
               }
             }
 
+            // 🔥 FIX 1: Add a mandatory browser execution paint pause to ensure all lower tags load completely
+            await page.waitForTimeout(1000);
+
             const fileSafeName = url.replace(/[^a-z0-9]/gi, '_').toLowerCase().substring(0, 40);
             const imgFilename = `screenshots/map_${runId}_${fileSafeName}.png`;
             const fullImgPath = path.join(process.cwd(), 'reports', hostName, imgFilename);
             
-            await page.screenshot({ path: fullImgPath, fullPage: true });
+            // 🔥 FIX 2: Set animations state to idle before capturing the image file
+            await page.screenshot({ path: fullImgPath, fullPage: true, animations: 'disabled' });
             screenshotPath = imgFilename;
           }
         } else {
